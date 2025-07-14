@@ -2,31 +2,52 @@ from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
 import cohere
 import os
+import re
 
 app = FastAPI()
 
-# Enable CORS
+# --- CORS (so the extension can access the API) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"]
 )
 
-co = cohere.Client("ERoJiNHuDiaw5pNvLQOQvxniFYsdxI5M7rMLVj0d")  # Your API key
+# --- Initialize Cohere with your real API key ---
+co = cohere.Client("ERoJiNHuDiaw5pNvLQOQvxniFYsdxI5M7rMLVj0d")
 
+# --- Function to clean markdown-style output ---
+def clean_json_output(text):
+    # Removes markdown code block formatting like ```json\n...\n```
+    return re.sub(r"```(?:json)?\s*(.*?)\s*```", r"\1", text.strip(), flags=re.DOTALL)
+
+# --- Threat Detection Endpoint ---
 @app.post("/analyze")
 def analyze_threat(message: str = Form(...)):
     prompt = f"""
-You are an AI assistant trained to detect threats.
+You are an AI assistant trained to detect threats, scams, phishing, manipulation, and psychological abuse in user messages.
+
+Analyze the message and return a JSON object with:
+- risk_level: (Safe / Caution / Dangerous)
+- red_flags: List
+- tone: (e.g., manipulative, urgent)
+- suggestion: A safe response
+- confidence: 0 to 100
 
 Message:
 \"\"\"{message}\"\"\"
 
-Return a JSON object with:
-- risk_level
-- red_flags
-- tone
-- suggestion
-- confidence
+Respond only in JSON format.
 """
-    response = co.generate(model="command-r-plus", prompt=prompt, max_tokens=300, temperature=0.4)
-    return {"result": response.generations[0].text.strip()}
+    try:
+        response = co.generate(
+            model="command-r-plus",
+            prompt=prompt,
+            max_tokens=300,
+            temperature=0.4
+        )
+        raw_output = response.generations[0].text
+        cleaned_output = clean_json_output(raw_output)
+        return {"result": cleaned_output}
+    except Exception as e:
+        return {"error": str(e)}
